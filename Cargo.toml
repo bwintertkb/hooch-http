@@ -2,6 +2,9 @@
 name = "hooch-http"
 version = "0.1.0"
 edition = "2024"
+description = "HTTP addition to the hooch runtime"
+license = "Apache-2.0" # or another SPDX license identifier
+authors = ["Bartek"]
 
 [dependencies]
 hooch = "0.1.5"
