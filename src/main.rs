@@ -1,4 +1,5 @@
 use hooch::{hooch_main, net::HoochTcpListener};
+use hooch_http::parser::HttpRequestParser;
 
 #[hooch_main]
 async fn main() {
@@ -8,6 +9,7 @@ async fn main() {
         let mut buffer = [0; 1024];
         let bytes_read = stream.read(&mut buffer).await.unwrap();
 
-        println!("String: {}", String::from_utf8_lossy(&buffer[..bytes_read]));
+        let http_request = HttpRequestParser::from_bytes(&buffer[..bytes_read]);
+        println!("HTTP REQUEST: {}", http_request);
     }
 }

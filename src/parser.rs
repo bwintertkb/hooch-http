@@ -1,3 +1,8 @@
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Display},
+};
+
 const CARRIAGE_RETURN_LINE_FEED: &'static [u8; 2] = b"\r\n";
 const CARRIAGE_RETURN_LINE_FEED_TWICE: &'static [u8; 4] = b"\r\n\r\n";
 const WHITESPACE_BYTE: u8 = 32;
@@ -7,12 +12,49 @@ const MAX_NUM_HEADERS: usize = 1000;
 
 #[derive(Debug)]
 pub struct HttpRequestParser<'a> {
-    body: &'a [u8],
+    method: HttpMethod,
+    uri: Uri<'a>,
+    version: HttpVersion,
+    headers: Headers<'a>,
+    body: &'a str,
+}
+
+impl<'a> Display for HttpRequestParser<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!(
+            "Method: {:?}\nUri: {:?}\nVersion: {:?}\nHeaders: {:?}\nBody: {:?}",
+            self.method,
+            self.uri.0,
+            self.version,
+            self.headers
+                .keys
+                .iter()
+                .zip(self.headers.values.iter())
+                .take(self.headers.num)
+                .map(|(key, value)| (key.unwrap(), value.unwrap()))
+                .collect::<HashMap<&str, &str>>(),
+            self.body
+        ))
+    }
 }
 
 impl<'a> HttpRequestParser<'a> {
     pub fn from_bytes(bytes: &'a [u8]) -> Self {
-        Self { body: bytes }
+        let request_line = Self::get_request_line(bytes);
+        let http_method = Self::extract_http_method(request_line);
+        let http_version = Self::extract_http_version(request_line);
+        let uri = Self::extract_request_uri(request_line);
+        let header_bytes = Self::get_headers(bytes);
+        let headers = Self::extract_headers(header_bytes);
+        let body = Self::get_body(bytes);
+
+        Self {
+            method: http_method,
+            uri,
+            version: http_version,
+            headers,
+            body,
+        }
     }
 
     fn get_request_line(bytes: &[u8]) -> &[u8] {
@@ -39,7 +81,7 @@ impl<'a> HttpRequestParser<'a> {
         &bytes[idx..header_bytes_idx + idx]
     }
 
-    fn get_body(bytes: &[u8]) -> &[u8] {
+    fn get_body(bytes: &[u8]) -> &str {
         let idx = bytes
             .windows(CARRIAGE_RETURN_LINE_FEED.len())
             .position(|window| window == CARRIAGE_RETURN_LINE_FEED)
@@ -52,11 +94,15 @@ impl<'a> HttpRequestParser<'a> {
             .map(|header_idx| header_idx + idx + CARRIAGE_RETURN_LINE_FEED_TWICE.len())
             .unwrap();
 
-        &bytes[end_of_header_bytes_idx..]
+        std::str::from_utf8(&bytes[end_of_header_bytes_idx..]).unwrap()
     }
 
-    fn extract_http_method(bytes: &[u8]) -> &[u8] {
-        bytes.split(|b| *b == WHITESPACE_BYTE).next().unwrap()
+    fn extract_http_method(bytes: &[u8]) -> HttpMethod {
+        bytes
+            .split(|b| *b == WHITESPACE_BYTE)
+            .next()
+            .unwrap()
+            .into()
     }
 
     fn extract_request_uri(bytes: &[u8]) -> Uri {
@@ -121,6 +167,7 @@ pub enum HttpVersion {
 
 impl From<&[u8]> for HttpVersion {
     fn from(value: &[u8]) -> Self {
+        println!("INNER INNER {}", String::from_utf8_lossy(value));
         match value {
             b"HTTP/1.1" => HttpVersion::OnePointOne,
             _ => panic!("Unsupported version"),
@@ -211,7 +258,7 @@ mod tests {
             80, 79, 83, 84, 32, 47, 117, 115, 101, 114, 32, 72, 84, 84, 80, 47, 49, 46, 49,
         ];
 
-        let expected = [80, 79, 83, 84];
+        let expected = HttpMethod::POST;
 
         let actual = HttpRequestParser::extract_http_method(&request_line);
 
@@ -330,7 +377,7 @@ mod tests {
 
         let actual = HttpRequestParser::get_body(&request);
 
-        let expected = b"{\"message\": \"hello world\"}";
+        let expected = "{\"message\": \"hello world\"}";
 
         assert_eq!(actual, expected);
     }
