@@ -3,15 +3,15 @@ use std::{
     fmt::{Debug, Display},
 };
 
-const CARRIAGE_RETURN_LINE_FEED: &'static [u8; 2] = b"\r\n";
-const CARRIAGE_RETURN_LINE_FEED_TWICE: &'static [u8; 4] = b"\r\n\r\n";
+const CARRIAGE_RETURN_LINE_FEED: &[u8; 2] = b"\r\n";
+const CARRIAGE_RETURN_LINE_FEED_TWICE: &[u8; 4] = b"\r\n\r\n";
 const WHITESPACE_BYTE: u8 = 32;
 const COLON_BYTE: u8 = 58;
 
 const MAX_NUM_HEADERS: usize = 1000;
 
 #[derive(Debug)]
-pub struct HttpRequestParser<'a> {
+pub struct HttpRequest<'a> {
     method: HttpMethod,
     uri: Uri<'a>,
     version: HttpVersion,
@@ -19,7 +19,9 @@ pub struct HttpRequestParser<'a> {
     body: &'a str,
 }
 
-impl<'a> Display for HttpRequestParser<'a> {
+unsafe impl Send for HttpRequest<'_> {}
+
+impl Display for HttpRequest<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&format!(
             "Method: {:?}\nUri: {:?}\nVersion: {:?}\nHeaders: {:?}\nBody: {:?}",
@@ -38,7 +40,7 @@ impl<'a> Display for HttpRequestParser<'a> {
     }
 }
 
-impl<'a> HttpRequestParser<'a> {
+impl<'a> HttpRequest<'a> {
     pub fn from_bytes(bytes: &'a [u8]) -> Self {
         let request_line = Self::get_request_line(bytes);
         let http_method = Self::extract_http_method(request_line);
@@ -131,7 +133,7 @@ impl<'a> HttpRequestParser<'a> {
                 break;
             };
 
-            let (key, value) = HttpRequestParser::get_header_key_and_value(
+            let (key, value) = HttpRequest::get_header_key_and_value(
                 &bytes[start_idx..carriage_return_idx + start_idx],
             );
 
@@ -140,7 +142,7 @@ impl<'a> HttpRequestParser<'a> {
             start_idx += carriage_return_idx + CARRIAGE_RETURN_LINE_FEED.len();
         }
 
-        let (key, value) = HttpRequestParser::get_header_key_and_value(&bytes[start_idx..]);
+        let (key, value) = HttpRequest::get_header_key_and_value(&bytes[start_idx..]);
         headers.add_key_value(key, value);
 
         headers
@@ -149,8 +151,8 @@ impl<'a> HttpRequestParser<'a> {
     fn get_header_key_and_value(bytes: &'a [u8]) -> (&'a str, &'a str) {
         let colon_idx = bytes.iter().position(|byte| *byte == COLON_BYTE).unwrap();
         let key = std::str::from_utf8(&bytes[..colon_idx]);
-        /// Need to check if there is a whitespace after the colon
-        /// Note true as usize == 1, false as usize == 0
+        // Need to check if there is a whitespace after the colon
+        // Note true as usize == 1, false as usize == 0
         let whitespace_offset = (bytes[colon_idx + 1] == WHITESPACE_BYTE) as usize;
         let value = std::str::from_utf8(&bytes[colon_idx + 1 + whitespace_offset..]);
         (key.unwrap(), value.unwrap())
@@ -209,6 +211,12 @@ pub struct Headers<'a> {
     num: usize,
 }
 
+impl Default for Headers<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> Headers<'a> {
     pub fn new() -> Self {
         Self {
@@ -247,7 +255,7 @@ mod tests {
         let expected = [
             80, 79, 83, 84, 32, 47, 117, 115, 101, 114, 32, 72, 84, 84, 80, 47, 49, 46, 49,
         ];
-        let actual = HttpRequestParser::get_request_line(&request);
+        let actual = HttpRequest::get_request_line(request);
 
         assert_eq!(actual, expected);
     }
@@ -260,7 +268,7 @@ mod tests {
 
         let expected = HttpMethod::POST;
 
-        let actual = HttpRequestParser::extract_http_method(&request_line);
+        let actual = HttpRequest::extract_http_method(&request_line);
 
         assert_eq!(actual, expected);
     }
@@ -302,7 +310,7 @@ mod tests {
             80, 79, 83, 84, 32, 47, 117, 115, 101, 114, 32, 72, 84, 84, 80, 47, 49, 46, 49,
         ];
 
-        let actual = HttpRequestParser::extract_request_uri(&request_line);
+        let actual = HttpRequest::extract_request_uri(&request_line);
         let expected = Uri("/user");
 
         assert_eq!(actual, expected);
@@ -316,7 +324,7 @@ mod tests {
 
         let expected = HttpVersion::OnePointOne;
 
-        let actual = HttpRequestParser::extract_http_version(&request_line);
+        let actual = HttpRequest::extract_http_version(&request_line);
 
         assert_eq!(actual, expected);
     }
@@ -325,7 +333,7 @@ mod tests {
     fn get_headers() {
         let request = get_test_post_request();
 
-        let actual = HttpRequestParser::get_headers(&request);
+        let actual = HttpRequest::get_headers(request);
 
         let expected = b"Host: localhost:8080\r\n\
      User-Agent: curl/7.81.0\r\n\
@@ -344,11 +352,11 @@ mod tests {
      Content-Type:application/json\r\n\
      Content-Length: 26";
 
-        let actual = HttpRequestParser::extract_headers(headers);
+        let actual = HttpRequest::extract_headers(headers);
 
         let mut expected_keys = [None; MAX_NUM_HEADERS];
         let mut expected_values = [None; MAX_NUM_HEADERS];
-        let mut expected_num_headers = 5;
+        let expected_num_headers = 5;
 
         expected_keys[0] = Some("Host");
         expected_keys[1] = Some("User-Agent");
@@ -375,7 +383,7 @@ mod tests {
     fn get_body() {
         let request = get_test_post_request();
 
-        let actual = HttpRequestParser::get_body(&request);
+        let actual = HttpRequest::get_body(request);
 
         let expected = "{\"message\": \"hello world\"}";
 
