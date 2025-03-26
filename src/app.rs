@@ -78,17 +78,16 @@ impl HoochApp {
         F: Fn(HttpRequest<'static>) -> Fut + Send + Sync + 'static,
     {
         loop {
-            let mut buffer = [0; 1024 * 1024];
+            let mut buffer = [0; 1024 * 100];
             let bytes_read = stream.read(&mut buffer).await.unwrap();
+            println!("BYTES READ: {}", bytes_read);
 
             let handler_clone = Arc::clone(&handler);
             Spawner::spawn(async move {
                 let http_request = HttpRequest::from_bytes(&buffer[..bytes_read]);
-                println!("HTTP REQUEST PRE: {http_request}");
                 let http_request: HttpRequest<'static> =
                     unsafe { std::mem::transmute(http_request) };
 
-                println!("HTTP REQUEST POST: {http_request}");
                 Self::handle_http_request(http_request, handler_clone).await;
             });
         }
