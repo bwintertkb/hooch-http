@@ -189,6 +189,12 @@ impl Cursor {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct Param<'a> {
+    key: [Option<&'a str>; 1024],
+    value: [Option<&'a str>; 1024],
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Uri<'a>(&'a str);
 
 impl AsRef<str> for Uri<'_> {
@@ -198,12 +204,9 @@ impl AsRef<str> for Uri<'_> {
 }
 
 impl Uri<'_> {
-    pub fn is_match(&self, cmp_uri: &str) -> bool {
+    pub fn is_match(&self, cmp_uri: &str) -> Option<Param<'_>> {
         let mut start_idx = 0;
-        let mut start_idx_uri = 0;
         let mut bracket_hit = false;
-        let mut bracket_group_num = 0;
-        let mut uri_iter = self.0.chars();
         let mut record_uri_char = false;
 
         let mut cursor_uri = Cursor {
@@ -223,7 +226,6 @@ impl Uri<'_> {
                     break;
                 };
                 println!("[DEBUG] RECORD CHAR URI {}", c_uri);
-                // THIS IS WHERE VARIABLES WOULD BE CAPTURED
                 while c_uri != c {
                     let Some(c_uri_next) = c_iter.next() else {
                         break;
