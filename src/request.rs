@@ -61,6 +61,10 @@ impl<'a> HttpRequest<'a> {
         }
     }
 
+    pub fn uri(&self) -> &Uri {
+        &self.uri
+    }
+
     fn get_request_line(bytes: &[u8]) -> &[u8] {
         let idx = bytes
             .windows(CARRIAGE_RETURN_LINE_FEED.len())
@@ -161,8 +165,130 @@ impl<'a> HttpRequest<'a> {
     }
 }
 
+struct Cursor {
+    idx: usize,
+    start_idx: usize,
+}
+
+impl Cursor {
+    fn increment(&mut self) {
+        self.idx += 1;
+    }
+
+    fn get(&self) -> usize {
+        self.idx
+    }
+
+    fn get_start(&self) -> usize {
+        self.start_idx
+    }
+
+    fn set_start_to_idx(&mut self) {
+        self.start_idx = self.idx;
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Uri<'a>(&'a str);
+
+impl AsRef<str> for Uri<'_> {
+    fn as_ref(&self) -> &str {
+        self.0
+    }
+}
+
+impl Uri<'_> {
+    pub fn is_match(&self, cmp_uri: &str) -> bool {
+        let mut start_idx = 0;
+        let mut start_idx_uri = 0;
+        let mut bracket_hit = false;
+        let mut bracket_group_num = 0;
+        let mut uri_iter = self.0.chars();
+        let mut record_uri_char = false;
+
+        let mut cursor_uri = Cursor {
+            idx: 0,
+            start_idx: 0,
+        };
+        let mut cursor_cmp_uri = Cursor {
+            idx: 0,
+            start_idx: 0,
+        };
+        for (idx, c) in cmp_uri.char_indices() {
+            if record_uri_char {
+                println!("[DEBUG] RECORD CHAR {}", c);
+                cursor_cmp_uri.set_start_to_idx();
+                let mut c_iter = self.0.chars().skip(cursor_uri.get());
+                let Some(mut c_uri) = c_iter.next() else {
+                    break;
+                };
+                println!("[DEBUG] RECORD CHAR URI {}", c_uri);
+                // THIS IS WHERE VARIABLES WOULD BE CAPTURED
+                while c_uri != c {
+                    let Some(c_uri_next) = c_iter.next() else {
+                        break;
+                    };
+                    c_uri = c_uri_next;
+                    cursor_uri.increment();
+                    println!("[DEBUG] RECORD CHAR WITHIN {}", c_uri);
+                }
+                println!("[DEBUG] FALSE FALSE RECORD CHAR WITHIN {}, {}", c_uri, c);
+                cursor_uri.set_start_to_idx();
+                record_uri_char = false;
+            }
+
+            if c == '{' {
+                println!("[DEBUG] BRACKET HIT START");
+                println!(
+                    "[DEBUG] CMP URI {:?}",
+                    &cmp_uri[cursor_cmp_uri.get_start()..cursor_cmp_uri.get()]
+                );
+                println!(
+                    "[DEBUG] SELF 0 URI {:?}",
+                    &self.0[cursor_uri.get_start()..cursor_uri.get()]
+                );
+
+                if cmp_uri[cursor_cmp_uri.get_start()..cursor_cmp_uri.get()]
+                    != self.0[cursor_uri.get_start()..cursor_uri.get()]
+                {
+                    return false;
+                } else {
+                    // We need to reset the start index
+                    println!("[DEBUG] BRACKET HIT");
+                    bracket_hit = true;
+                }
+            }
+
+            if bracket_hit {
+                if c == '}' {
+                    println!("[DEBUG] BRACKET HIT END");
+                    bracket_hit = false;
+                    start_idx = idx + 1;
+                    record_uri_char = true;
+                    cursor_cmp_uri.set_start_to_idx();
+                }
+                cursor_cmp_uri.increment();
+                continue;
+            }
+
+            cursor_uri.increment();
+            if !bracket_hit {
+                cursor_cmp_uri.increment();
+            }
+        }
+
+        if start_idx >= cmp_uri.len() {
+            return true;
+        }
+
+        println!("START INDEX {}", start_idx);
+        println!("SELF 0 URI {:?}", &self.0[cursor_uri.get_start()..]);
+        println!("CMP URI {:?}", &cmp_uri[cursor_cmp_uri.get_start()..]);
+
+        // Compare the last part
+        self.0[cursor_uri.get_start()..] == cmp_uri[cursor_cmp_uri.get_start()..]
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum HttpMethod {
@@ -264,6 +390,7 @@ mod tests {
     fn bytes_to_http_method() {
         let get = [71, 69, 84];
         let actual: HttpMethod = get.as_slice().into();
+
         assert_eq!(actual, HttpMethod::GET);
 
         let head = [72, 69, 65, 68];
@@ -375,5 +502,29 @@ mod tests {
         let expected = "{\"message\": \"hello world\"}";
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn uri_is_match_no_parameterized() {
+        let uri = Uri("/uri");
+        assert!(uri.is_match("/uri"))
+    }
+
+    #[test]
+    fn ui_is_match_parameterized_single_arg() {
+        let uri = Uri("/1244r2");
+        assert!(uri.is_match("/{id}"))
+    }
+
+    #[test]
+    fn ui_is_match_parameterized_multi_arg() {
+        let uri = Uri("/orders/123?status=shipped&include=details");
+        assert!(uri.is_match("/orders/123?status={statement}&include=details"))
+    }
+
+    #[test]
+    fn ui_is_match_parameterized_multi_arg2() {
+        let uri = Uri("/orders/123?status=shipped&include=details");
+        assert!(uri.is_match("/orders/123?status={statement}&{includee}=details"))
     }
 }

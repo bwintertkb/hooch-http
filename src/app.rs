@@ -51,9 +51,7 @@ impl HoochApp {
         while let Ok((stream, socket)) = listener.accept().await {
             println!("Received message from socket {:?}", socket);
             let handler_clone = Arc::clone(&handler);
-            println!("handler clone");
             Spawner::spawn(async move {
-                println!("HTTP 22");
                 Self::handle_stream(stream, handler_clone).await;
             });
         }
