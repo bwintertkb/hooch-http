@@ -3,6 +3,8 @@ use std::{
     fmt::{Debug, Display},
 };
 
+use crate::shared::HttpVersion;
+
 const CARRIAGE_RETURN_LINE_FEED: &[u8; 2] = b"\r\n";
 const CARRIAGE_RETURN_LINE_FEED_TWICE: &[u8; 4] = b"\r\n\r\n";
 const WHITESPACE_BYTE: u8 = 32;
@@ -161,21 +163,6 @@ impl<'a> HttpRequest<'a> {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Uri<'a>(&'a str);
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum HttpVersion {
-    OnePointOne,
-}
-
-impl From<&[u8]> for HttpVersion {
-    fn from(value: &[u8]) -> Self {
-        println!("INNER INNER {}", String::from_utf8_lossy(value));
-        match value {
-            b"HTTP/1.1" => HttpVersion::OnePointOne,
-            _ => panic!("Unsupported version"),
-        }
-    }
-}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum HttpMethod {
