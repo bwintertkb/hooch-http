@@ -192,6 +192,15 @@ impl Cursor {
 pub struct Param<'a> {
     key: [Option<&'a str>; 1024],
     value: [Option<&'a str>; 1024],
+    num: usize,
+}
+
+impl<'a> Iterator for Param<'a> {
+    type Item = (&'a str, &'a str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
