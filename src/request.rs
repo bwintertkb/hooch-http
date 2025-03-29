@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
+    marker::PhantomData,
 };
 
 use crate::shared::HttpVersion;
@@ -189,9 +190,15 @@ impl Cursor {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct PathSegment;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct QuerySegment;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Params<'a> {
-    path_segment: Segment<'a>,
-    query_fragment: Segment<'a>,
+    path_segment: Segment<'a, PathSegment>,
+    query_fragment: Segment<'a, QuerySegment>,
 }
 
 impl Default for Params<'_> {
@@ -203,31 +210,43 @@ impl Default for Params<'_> {
 impl Params<'_> {
     pub fn new() -> Self {
         Self {
-            path_segment: Segment::default(),
-            query_fragment: Segment::default(),
+            path_segment: Segment::<PathSegment>::new(),
+            query_fragment: Segment::<QuerySegment>::new(),
         }
+    }
+
+    pub fn path_segment(&self) -> &Segment<'_, PathSegment> {
+        &self.path_segment
+    }
+
+    pub fn query_segment(&self) -> &Segment<'_, QuerySegment> {
+        &self.query_fragment
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Segment<'a> {
+pub struct Segment<'a, T>
+where
+    T: Copy + Debug + PartialEq + Eq + Clone,
+{
     key: [Option<&'a str>; 1024],
     value: [Option<&'a str>; 1024],
     num: usize,
+    iter_cnt: usize,
+    marker: PhantomData<T>,
 }
 
-impl Default for Segment<'_> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'a> Segment<'a> {
+impl<'a, T> Segment<'a, T>
+where
+    T: Copy + Debug + PartialEq + Eq + Clone,
+{
     pub fn new() -> Self {
         Self {
             key: [None; 1024],
             value: [None; 1024],
             num: 0,
+            iter_cnt: 0,
+            marker: PhantomData,
         }
     }
 
@@ -245,13 +264,65 @@ impl<'a> Segment<'a> {
         self.value[self.num] = value;
         self.num += 1;
     }
+
+    /// Returns number of inserted key value pairs
+    pub fn size(&self) -> usize {
+        self.num
+    }
+
+    pub fn iter(&mut self) -> &mut Self {
+        self.iter_cnt = 0;
+        self
+    }
 }
 
-impl<'a> Iterator for Params<'a> {
-    type Item = (&'a str, &'a str);
+impl<'a> Iterator for Segment<'a, PathSegment> {
+    type Item = (Key<'a>, Value<'a>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        if self.iter_cnt >= self.num {
+            return None;
+        }
+        let items = (
+            Key(self.key[self.iter_cnt].unwrap()),
+            Value(self.value[self.iter_cnt].unwrap()),
+        );
+        self.iter_cnt += 1;
+        Some(items)
+    }
+}
+
+impl<'a> Iterator for Segment<'a, QuerySegment> {
+    type Item = (Key<'a>, Option<Value<'a>>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.iter_cnt >= self.num {
+            return None;
+        }
+        let items = (
+            Key(self.key[self.iter_cnt].unwrap()),
+            self.value[self.iter_cnt].map(Value),
+        );
+        self.iter_cnt += 1;
+        Some(items)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Key<'a>(&'a str);
+
+impl AsRef<str> for Key<'_> {
+    fn as_ref(&self) -> &str {
+        self.0
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Value<'a>(&'a str);
+
+impl AsRef<str> for Value<'_> {
+    fn as_ref(&self) -> &str {
+        self.0
     }
 }
 
@@ -266,7 +337,7 @@ impl AsRef<str> for Uri<'_> {
 
 impl<'a> Uri<'a> {
     pub fn is_match(&self, cmp_uri: &'a str) -> Option<Params<'a>> {
-        let mut path_segment = Segment::default();
+        let mut path_segment = Segment::<PathSegment>::new();
 
         let mut start_idx = 0;
         let mut bracket_hit = false;
@@ -395,8 +466,8 @@ impl<'a> Uri<'a> {
         params
     }
 
-    fn parse_segment(segment_part: &'a str) -> Segment<'a> {
-        let mut segment: Segment<'a> = Segment::default();
+    fn parse_segment(segment_part: &'a str) -> Segment<'a, QuerySegment> {
+        let mut segment: Segment<'a, QuerySegment> = Segment::new();
 
         segment_part.split('&').for_each(|inner_split| {
             let mut iter = inner_split.splitn(2, '=');
@@ -630,8 +701,8 @@ mod tests {
         let uri = Uri("/uri");
 
         let expected_params = Params {
-            path_segment: Segment::default(),
-            query_fragment: Segment::default(),
+            path_segment: Segment::<PathSegment>::new(),
+            query_fragment: Segment::<QuerySegment>::new(),
         };
 
         assert_eq!(uri.is_match("/uri"), Some(expected_params))
@@ -641,14 +712,14 @@ mod tests {
     fn ui_is_match_parameterized_single_arg() {
         let uri = Uri("/1244r2");
 
-        let mut path_segment = Segment::default();
+        let mut path_segment = Segment::<PathSegment>::new();
         path_segment.key[0] = Some("id");
         path_segment.value[0] = Some("1244r2");
         path_segment.num = 1;
 
         let expected_params = Params {
             path_segment,
-            query_fragment: Segment::default(),
+            query_fragment: Segment::<QuerySegment>::new(),
         };
         assert_eq!(uri.is_match("/{id}"), Some(expected_params))
     }
@@ -656,13 +727,13 @@ mod tests {
     #[test]
     fn uri_is_match_parameterized_and_query() {
         let uri = Uri("/orders/123?status=hello_matey&include=details");
-        let mut path_segment = Segment::default();
+        let mut path_segment = Segment::<PathSegment>::new();
 
         path_segment.key[0] = Some("orders_param");
         path_segment.value[0] = Some("orders");
         path_segment.num = 1;
 
-        let mut query_segment = Segment::default();
+        let mut query_segment = Segment::<QuerySegment>::new();
         query_segment.key[0] = Some("status");
         query_segment.value[0] = Some("hello_matey");
         query_segment.key[1] = Some("include");
@@ -681,15 +752,14 @@ mod tests {
     fn uri_is_match_parameterized_multi_args() {
         let uri = Uri("/orders/status/123?status=shipped&include=details");
 
-        let mut path_segment = Segment::default();
+        let mut path_segment = Segment::<PathSegment>::new();
         path_segment.key[0] = Some("orders_param");
         path_segment.value[0] = Some("orders");
         path_segment.key[1] = Some("field");
         path_segment.value[1] = Some("status");
         path_segment.num = 2;
 
-        let mut query_segment = Segment::default();
-
+        let mut query_segment = Segment::<QuerySegment>::new();
         query_segment.key[0] = Some("status");
         query_segment.value[0] = Some("shipped");
         query_segment.key[1] = Some("include");
@@ -725,5 +795,36 @@ mod tests {
         expected.num = 5;
 
         assert_eq!(actual, expected)
+    }
+
+    #[test]
+    fn path_segment_iter() {
+        let mut path_segment = Segment::<PathSegment>::new();
+        path_segment.key[0] = Some("id");
+        path_segment.value[0] = Some("123");
+        path_segment.key[1] = Some("name");
+        path_segment.value[1] = Some("hello");
+        path_segment.num = 2;
+
+        let iter = path_segment.iter();
+
+        assert_eq!(iter.next(), Some((Key("id"), Value("123"))));
+        assert_eq!(iter.next(), Some((Key("name"), Value("hello"))));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn query_segment_iter() {
+        let mut query_segment = Segment::<QuerySegment>::new();
+        query_segment.key[0] = Some("id");
+        query_segment.value[0] = Some("123");
+        query_segment.key[1] = Some("name");
+        query_segment.value[1] = None;
+        query_segment.num = 2;
+
+        let iter = query_segment.iter();
+        assert_eq!(iter.next(), Some((Key("id"), Some(Value("123")))));
+        assert_eq!(iter.next(), Some((Key("name"), None)));
+        assert_eq!(iter.next(), None);
     }
 }

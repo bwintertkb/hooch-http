@@ -15,6 +15,12 @@ async fn main() {
 async fn handler(req: HttpRequest<'_>) -> HttpResponse {
     println!("REQUEST: {}", req);
 
+    if let Some(params) = req.uri().is_match("/what/mate") {
+        return HttpResponseBuilder::ok()
+            .body("Hello from inside what mate".into())
+            .build();
+    }
+
     HttpResponseBuilder::not_found()
         .body("Hello from handler".into())
         .build()
