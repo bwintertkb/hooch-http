@@ -138,18 +138,12 @@ impl<'a> HttpRequest<'a> {
     /// Extract the body section of the HTTP request.
     fn get_body(bytes: &[u8]) -> &str {
         let idx = bytes
-            .windows(CARRIAGE_RETURN_LINE_FEED.len())
-            .position(|window| window == CARRIAGE_RETURN_LINE_FEED)
-            .map(|idx| idx + CARRIAGE_RETURN_LINE_FEED.len())
-            .unwrap();
-
-        let end_of_header_bytes_idx = bytes[idx..]
             .windows(CARRIAGE_RETURN_LINE_FEED_TWICE.len())
             .position(|window| window == CARRIAGE_RETURN_LINE_FEED_TWICE)
-            .map(|header_idx| header_idx + idx + CARRIAGE_RETURN_LINE_FEED_TWICE.len())
+            .map(|idx| idx + CARRIAGE_RETURN_LINE_FEED_TWICE.len())
             .unwrap();
 
-        std::str::from_utf8(&bytes[end_of_header_bytes_idx..]).unwrap()
+        std::str::from_utf8(&bytes[idx..]).unwrap()
     }
 
     /// Extract HTTP method from request line.
@@ -641,6 +635,12 @@ mod tests {
      {\"message\": \"hello world\"}"
     }
 
+    fn get_test_post_request_no_headers() -> &'static [u8] {
+        b"POST /user HTTP/1.1\r\n\
+        \r\n\
+     {\"message\": \"hello world\"}"
+    }
+
     #[test]
     fn get_request_line() {
         let request = get_test_post_request();
@@ -776,6 +776,14 @@ mod tests {
     #[test]
     fn get_body() {
         let request = get_test_post_request();
+
+        let actual = HttpRequest::get_body(request);
+
+        let expected = "{\"message\": \"hello world\"}";
+
+        assert_eq!(actual, expected);
+
+        let request = get_test_post_request_no_headers();
 
         let actual = HttpRequest::get_body(request);
 
