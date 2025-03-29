@@ -8,7 +8,7 @@ license = "Apache-2.0"
 repository = "https://github.com/bwintertkb/hooch-http"
 readme = "README.md"
 keywords = ["async", "http", "io", "non-blocking"]
-categories = ["asynchronous", "http"]
+categories = ["asynchronous"]
 
 [dependencies]
 hooch = "0.1.5"
