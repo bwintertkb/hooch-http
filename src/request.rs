@@ -189,13 +189,65 @@ impl Cursor {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Param<'a> {
+pub struct Params<'a> {
+    path_segment: Segment<'a>,
+    query_fragment: Segment<'a>,
+}
+
+impl Default for Params<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Params<'_> {
+    pub fn new() -> Self {
+        Self {
+            path_segment: Segment::default(),
+            query_fragment: Segment::default(),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct Segment<'a> {
     key: [Option<&'a str>; 1024],
     value: [Option<&'a str>; 1024],
     num: usize,
 }
 
-impl<'a> Iterator for Param<'a> {
+impl Default for Segment<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'a> Segment<'a> {
+    pub fn new() -> Self {
+        Self {
+            key: [None; 1024],
+            value: [None; 1024],
+            num: 0,
+        }
+    }
+
+    pub fn insert_key_value(&mut self, key: &'a str, value: Option<&'a str>) {
+        self.key[self.num] = Some(key);
+        self.value[self.num] = value;
+        self.num += 1;
+    }
+
+    pub fn insert_key(&mut self, key: &'a str) {
+        self.key[self.num] = Some(key);
+    }
+
+    pub fn insert_value(&mut self, value: Option<&'a str>) {
+        self.value[self.num] = value;
+        self.num += 1;
+    }
+}
+
+impl<'a> Iterator for Params<'a> {
     type Item = (&'a str, &'a str);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -212,11 +264,15 @@ impl AsRef<str> for Uri<'_> {
     }
 }
 
-impl Uri<'_> {
-    pub fn is_match(&self, cmp_uri: &str) -> Option<Param<'_>> {
+impl<'a> Uri<'a> {
+    pub fn is_match(&self, cmp_uri: &'a str) -> Option<Params<'a>> {
+        let mut path_segment = Segment::default();
+
         let mut start_idx = 0;
         let mut bracket_hit = false;
+        let mut bracket_hit_idx = 0;
         let mut record_uri_char = false;
+        let mut end_with_value = false;
 
         let mut cursor_uri = Cursor {
             idx: 0,
@@ -229,7 +285,9 @@ impl Uri<'_> {
         for (idx, c) in cmp_uri.char_indices() {
             if record_uri_char {
                 println!("[DEBUG] RECORD CHAR {}", c);
+                end_with_value = false;
                 cursor_cmp_uri.set_start_to_idx();
+                let start_idx_uri = cursor_uri.get();
                 let mut c_iter = self.0.chars().skip(cursor_uri.get());
                 let Some(mut c_uri) = c_iter.next() else {
                     break;
@@ -243,6 +301,9 @@ impl Uri<'_> {
                     cursor_uri.increment();
                     println!("[DEBUG] RECORD CHAR WITHIN {}", c_uri);
                 }
+                let end_idx_uri = cursor_uri.get();
+                println!("[DEBUG] END URI: {:?}", &self.0[start_idx_uri..end_idx_uri]);
+                path_segment.insert_value(Some(&self.0[start_idx_uri..end_idx_uri]));
                 println!("[DEBUG] FALSE FALSE RECORD CHAR WITHIN {}, {}", c_uri, c);
                 cursor_uri.set_start_to_idx();
                 record_uri_char = false;
@@ -262,11 +323,12 @@ impl Uri<'_> {
                 if cmp_uri[cursor_cmp_uri.get_start()..cursor_cmp_uri.get()]
                     != self.0[cursor_uri.get_start()..cursor_uri.get()]
                 {
-                    return false;
+                    return None;
                 } else {
                     // We need to reset the start index
                     println!("[DEBUG] BRACKET HIT");
                     bracket_hit = true;
+                    bracket_hit_idx = idx;
                 }
             }
 
@@ -276,6 +338,12 @@ impl Uri<'_> {
                     bracket_hit = false;
                     start_idx = idx + 1;
                     record_uri_char = true;
+                    end_with_value = true;
+                    println!(
+                        "[DEBUG] KEY TO ADD {:?}",
+                        &cmp_uri[bracket_hit_idx + 1..idx]
+                    );
+                    path_segment.insert_key(&cmp_uri[bracket_hit_idx + 1..idx]);
                     cursor_cmp_uri.set_start_to_idx();
                 }
                 cursor_cmp_uri.increment();
@@ -287,17 +355,59 @@ impl Uri<'_> {
                 cursor_cmp_uri.increment();
             }
         }
+        let mut params: Option<Params> = None;
 
-        if start_idx >= cmp_uri.len() {
-            return true;
+        println!("[DEBUG] END WITH VALUE: {}", end_with_value);
+        if end_with_value {
+            // We need to extract the parameter value
+            println!("[DEBUG] END WITH VALUE: {}", end_with_value);
+            path_segment.insert_value(Some(&self.0[cursor_uri.get()..]));
         }
 
-        println!("START INDEX {}", start_idx);
-        println!("SELF 0 URI {:?}", &self.0[cursor_uri.get_start()..]);
-        println!("CMP URI {:?}", &cmp_uri[cursor_cmp_uri.get_start()..]);
+        if self.0.contains('?') {
+            if let Some(query_fragment) = self.0.split('?').last() {
+                let query_segment = Uri::parse_segment(query_fragment);
+                params.get_or_insert_default().query_fragment = query_segment;
+            }
+        }
+
+        if path_segment.num > 0 {
+            println!("[DEBUG] WITHIN 2233");
+            params.get_or_insert_default().path_segment = path_segment;
+        }
+
+        if start_idx >= cmp_uri.len() {
+            // Need to check if we end with a value parameter
+            println!("[DEBUG] WITHIN");
+            return params;
+        }
 
         // Compare the last part
-        self.0[cursor_uri.get_start()..] == cmp_uri[cursor_cmp_uri.get_start()..]
+        if self.0[cursor_uri.get_start()..] != cmp_uri[cursor_cmp_uri.get_start()..] {
+            println!("WITHIN WITHIN WITHIN");
+            return params;
+        }
+
+        println!("[DEBUG] BEFORE THE END, but we know it's a match here so we can set it to a default value");
+        if params.is_none() {
+            params = Some(Params::default());
+        }
+        params
+    }
+
+    fn parse_segment(segment_part: &'a str) -> Segment<'a> {
+        let mut segment: Segment<'a> = Segment::default();
+
+        segment_part.split('&').for_each(|inner_split| {
+            let mut iter = inner_split.splitn(2, '=');
+            let Some(key) = iter.next() else {
+                return;
+            };
+            let value = iter.next();
+            segment.insert_key_value(key, value);
+        });
+
+        segment
     }
 }
 
@@ -518,24 +628,102 @@ mod tests {
     #[test]
     fn uri_is_match_no_parameterized() {
         let uri = Uri("/uri");
-        assert!(uri.is_match("/uri"))
+
+        let expected_params = Params {
+            path_segment: Segment::default(),
+            query_fragment: Segment::default(),
+        };
+
+        assert_eq!(uri.is_match("/uri"), Some(expected_params))
     }
 
     #[test]
     fn ui_is_match_parameterized_single_arg() {
         let uri = Uri("/1244r2");
-        assert!(uri.is_match("/{id}"))
+
+        let mut path_segment = Segment::default();
+        path_segment.key[0] = Some("id");
+        path_segment.value[0] = Some("1244r2");
+        path_segment.num = 1;
+
+        let expected_params = Params {
+            path_segment,
+            query_fragment: Segment::default(),
+        };
+        assert_eq!(uri.is_match("/{id}"), Some(expected_params))
     }
 
     #[test]
-    fn ui_is_match_parameterized_multi_arg() {
-        let uri = Uri("/orders/123?status=shipped&include=details");
-        assert!(uri.is_match("/orders/123?status={statement}&include=details"))
+    fn uri_is_match_parameterized_and_query() {
+        let uri = Uri("/orders/123?status=hello_matey&include=details");
+        let mut path_segment = Segment::default();
+
+        path_segment.key[0] = Some("orders_param");
+        path_segment.value[0] = Some("orders");
+        path_segment.num = 1;
+
+        let mut query_segment = Segment::default();
+        query_segment.key[0] = Some("status");
+        query_segment.value[0] = Some("hello_matey");
+        query_segment.key[1] = Some("include");
+        query_segment.value[1] = Some("details");
+        query_segment.num = 2;
+
+        let params = Params {
+            path_segment,
+            query_fragment: query_segment,
+        };
+
+        assert_eq!(uri.is_match("/{orders_param}/123"), Some(params))
     }
 
     #[test]
-    fn ui_is_match_parameterized_multi_arg2() {
-        let uri = Uri("/orders/123?status=shipped&include=details");
-        assert!(uri.is_match("/orders/123?status={statement}&{includee}=details"))
+    fn uri_is_match_parameterized_multi_args() {
+        let uri = Uri("/orders/status/123?status=shipped&include=details");
+
+        let mut path_segment = Segment::default();
+        path_segment.key[0] = Some("orders_param");
+        path_segment.value[0] = Some("orders");
+        path_segment.key[1] = Some("field");
+        path_segment.value[1] = Some("status");
+        path_segment.num = 2;
+
+        let mut query_segment = Segment::default();
+
+        query_segment.key[0] = Some("status");
+        query_segment.value[0] = Some("shipped");
+        query_segment.key[1] = Some("include");
+        query_segment.value[1] = Some("details");
+        query_segment.num = 2;
+
+        assert_eq!(
+            uri.is_match("/{orders_param}/{field}/123"),
+            Some(Params {
+                path_segment,
+                query_fragment: query_segment,
+            })
+        )
+    }
+
+    #[test]
+    fn uri_query_segment_params_parsing() {
+        let segment = "q=rust&&limit=10&debug&sort=asc";
+
+        let actual = Uri::parse_segment(segment);
+
+        let mut expected = Segment::new();
+        expected.key[0] = Some("q");
+        expected.key[1] = Some("");
+        expected.key[2] = Some("limit");
+        expected.key[3] = Some("debug");
+        expected.key[4] = Some("sort");
+        expected.value[0] = Some("rust");
+        expected.value[1] = None;
+        expected.value[2] = Some("10");
+        expected.value[3] = None;
+        expected.value[4] = Some("asc");
+        expected.num = 5;
+
+        assert_eq!(actual, expected)
     }
 }
