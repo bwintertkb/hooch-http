@@ -207,12 +207,20 @@ impl Default for Params<'_> {
     }
 }
 
-impl Params<'_> {
+impl<'a> Params<'a> {
     pub fn new() -> Self {
         Self {
             path_segment: Segment::<PathSegment>::new(),
             query_fragment: Segment::<QuerySegment>::new(),
         }
+    }
+
+    pub fn iter_path(&mut self) -> &mut Segment<'a, PathSegment> {
+        self.path_segment.iter()
+    }
+
+    pub fn iter_query(&mut self) -> &mut Segment<'a, QuerySegment> {
+        self.query_fragment.iter()
     }
 
     pub fn path_segment(&self) -> &Segment<'_, PathSegment> {
@@ -428,11 +436,31 @@ impl<'a> Uri<'a> {
         }
         let mut params: Option<Params> = None;
 
+        if self.0.contains('?') {
+            if let Some(query_fragment) = self.0.split('?').last() {
+                let query_segment = Uri::parse_segment(query_fragment);
+                params.get_or_insert_default().query_fragment = query_segment;
+            }
+        }
+
         println!("[DEBUG] END WITH VALUE: {}", end_with_value);
         if end_with_value {
             // We need to extract the parameter value
             println!("[DEBUG] END WITH VALUE: {}", end_with_value);
-            path_segment.insert_value(Some(&self.0[cursor_uri.get()..]));
+
+            let mut end_idx = self.0.len();
+            for (idx, char) in self.0.char_indices() {
+                if char == '?' {
+                    end_idx = idx;
+                    break;
+                }
+            }
+
+            println!(
+                "[DEBUG] END WITH VALUE QUERY: {:?}",
+                Some(&self.0[cursor_uri.get()..end_idx])
+            );
+            path_segment.insert_value(Some(&self.0[cursor_uri.get()..end_idx]));
         }
 
         if self.0.contains('?') {
@@ -768,6 +796,31 @@ mod tests {
 
         assert_eq!(
             uri.is_match("/{orders_param}/{field}/123"),
+            Some(Params {
+                path_segment,
+                query_fragment: query_segment,
+            })
+        )
+    }
+
+    #[test]
+    fn uri_is_match_parameterized_multi_args2() {
+        let uri = Uri("/what/hello?this=value&is");
+
+        let mut path_segment = Segment::<PathSegment>::new();
+        path_segment.key[0] = Some("mate");
+        path_segment.value[0] = Some("hello");
+        path_segment.num = 1;
+
+        let mut query_segment = Segment::<QuerySegment>::new();
+        query_segment.key[0] = Some("this");
+        query_segment.value[0] = Some("value");
+        query_segment.key[1] = Some("is");
+        query_segment.value[1] = None;
+        query_segment.num = 2;
+
+        assert_eq!(
+            uri.is_match("/what/{mate}"),
             Some(Params {
                 path_segment,
                 query_fragment: query_segment,
