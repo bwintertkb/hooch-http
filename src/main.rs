@@ -1,9 +1,5 @@
 use hooch::hooch_main;
-use hooch_http::{
-    app::HoochAppBuilder,
-    request::HttpRequest,
-    response::{HttpResponse, HttpResponseBuilder},
-};
+use hooch_http::{HoochAppBuilder, HttpRequest, HttpResponse, HttpResponseBuilder};
 
 #[hooch_main]
 async fn main() {
@@ -13,18 +9,15 @@ async fn main() {
 }
 
 async fn handler(req: HttpRequest<'_>) -> HttpResponse {
-    println!("REQUEST: {}", req);
-
-    println!("URI: {:?}", req.uri());
     if let Some(mut params) = req.uri().is_match("/what/{mate}") {
         let iter_path = params.iter_path();
-        while let Some((key, value)) = iter_path.next() {
+        for (key, value) in iter_path.by_ref() {
             println!("PATH KEY: {:?}", key);
             println!("PATH VALUE: {:?}", value);
         }
 
         let iter_query = params.iter_query();
-        while let Some((key, value)) = iter_query.next() {
+        for (key, value) in iter_query.by_ref() {
             println!("QUERY KEY: {:?}", key);
             println!("QUERY VALUE: {:?}", value);
         }

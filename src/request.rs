@@ -1,3 +1,42 @@
+//! HTTP Request Parsing Library
+//!
+//! This module provides a low-level HTTP request parser tailored for embedded or minimal-runtime environments.
+//! It does not depend on external HTTP parsing libraries and works directly on raw byte slices.
+//!
+//! ## Features
+//!
+//! - Parses HTTP request lines to extract the method, URI, and HTTP version.
+//! - Parses raw headers and stores them efficiently in a fixed-size array.
+//! - Extracts and returns the body as a UTF-8 string.
+//! - Supports route matching via a lightweight URI matcher that extracts named parameters.
+//! - Splits URI segments into path and query parameters, with type-safe iteration.
+//! - All data structures avoid heap allocation by design.
+//!
+//! ## Example
+//!
+//! ```rust
+//! use hooch_http::HttpRequest;
+//! let raw_request = b"GET /orders/123?status=shipped&sort=desc HTTP/1.1\r\nHost: localhost\r\n\r\n";
+//! let request = HttpRequest::from_bytes(raw_request);
+//! let uri = request.uri();
+//!
+//! // Match against a route with path parameters
+//! if let Some(mut params) = uri.is_match("/orders/{order_id}") {
+//!     for (key, value) in params.iter_path() {
+//!         println!("Path param: {} = {}", key.as_ref(), value.as_ref());
+//!     }
+//!     for (key, value) in params.iter_query() {
+//!         match value {
+//!             Some(val) => println!("Query param: {} = {}", key.as_ref(), val.as_ref()),
+//!             None => println!("Query param: {} with no value", key.as_ref()),
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! This parser is useful for implementing custom web servers, routers, or embedded HTTP interpreters.
+//! It aims for clarity and simplicity over full HTTP/1.1 compliance.
+
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
@@ -13,6 +52,7 @@ const COLON_BYTE: u8 = 58;
 
 const MAX_NUM_HEADERS: usize = 1000;
 
+/// Representation of a parsed HTTP request.
 #[derive(Debug)]
 pub struct HttpRequest<'a> {
     method: HttpMethod,
@@ -22,6 +62,7 @@ pub struct HttpRequest<'a> {
     body: &'a str,
 }
 
+/// Allow `HttpRequest` to be sent across threads.
 unsafe impl Send for HttpRequest<'_> {}
 
 impl Display for HttpRequest<'_> {
@@ -44,6 +85,7 @@ impl Display for HttpRequest<'_> {
 }
 
 impl<'a> HttpRequest<'a> {
+    /// Parse an HTTP request from raw bytes.
     pub fn from_bytes(bytes: &'a [u8]) -> Self {
         let request_line = Self::get_request_line(bytes);
         let http_method = Self::extract_http_method(request_line);
@@ -62,10 +104,12 @@ impl<'a> HttpRequest<'a> {
         }
     }
 
+    /// Get a reference to the URI.
     pub fn uri(&self) -> &Uri {
         &self.uri
     }
 
+    /// Extract the request line from the HTTP request.
     fn get_request_line(bytes: &[u8]) -> &[u8] {
         let idx = bytes
             .windows(CARRIAGE_RETURN_LINE_FEED.len())
@@ -75,6 +119,7 @@ impl<'a> HttpRequest<'a> {
         &bytes[..idx]
     }
 
+    /// Extract header block (excluding request line and body).
     fn get_headers(bytes: &[u8]) -> &[u8] {
         let idx = bytes
             .windows(CARRIAGE_RETURN_LINE_FEED.len())
@@ -90,6 +135,7 @@ impl<'a> HttpRequest<'a> {
         &bytes[idx..header_bytes_idx + idx]
     }
 
+    /// Extract the body section of the HTTP request.
     fn get_body(bytes: &[u8]) -> &str {
         let idx = bytes
             .windows(CARRIAGE_RETURN_LINE_FEED.len())
@@ -106,6 +152,7 @@ impl<'a> HttpRequest<'a> {
         std::str::from_utf8(&bytes[end_of_header_bytes_idx..]).unwrap()
     }
 
+    /// Extract HTTP method from request line.
     fn extract_http_method(bytes: &[u8]) -> HttpMethod {
         bytes
             .split(|b| *b == WHITESPACE_BYTE)
@@ -114,6 +161,7 @@ impl<'a> HttpRequest<'a> {
             .into()
     }
 
+    /// Extract URI from request line.
     fn extract_request_uri(bytes: &[u8]) -> Uri {
         let mut uri_bytes_split = bytes.split(|b| *b == WHITESPACE_BYTE);
         uri_bytes_split.next().unwrap();
@@ -121,6 +169,7 @@ impl<'a> HttpRequest<'a> {
         Uri(std::str::from_utf8(uri_bytes).unwrap())
     }
 
+    /// Extract HTTP version from request line.
     fn extract_http_version(bytes: &[u8]) -> HttpVersion {
         let mut http_version_bytes_split = bytes.split(|b| *b == WHITESPACE_BYTE);
         http_version_bytes_split.next().unwrap();
@@ -128,6 +177,7 @@ impl<'a> HttpRequest<'a> {
         http_version_bytes_split.next().unwrap().into()
     }
 
+    /// Extract headers from raw header bytes.
     fn extract_headers(bytes: &[u8]) -> Headers {
         let mut headers = Headers::new();
         let mut start_idx = 0;
@@ -155,46 +205,55 @@ impl<'a> HttpRequest<'a> {
         headers
     }
 
+    /// Extract a single header's key and value.
     fn get_header_key_and_value(bytes: &'a [u8]) -> (&'a str, &'a str) {
         let colon_idx = bytes.iter().position(|byte| *byte == COLON_BYTE).unwrap();
         let key = std::str::from_utf8(&bytes[..colon_idx]);
-        // Need to check if there is a whitespace after the colon
-        // Note true as usize == 1, false as usize == 0
         let whitespace_offset = (bytes[colon_idx + 1] == WHITESPACE_BYTE) as usize;
         let value = std::str::from_utf8(&bytes[colon_idx + 1 + whitespace_offset..]);
         (key.unwrap(), value.unwrap())
     }
 }
 
+/// A simple cursor used to track positions while parsing strings or byte slices.
 struct Cursor {
+    /// Current index position.
     idx: usize,
+    /// Marker index used to track start of a span (e.g., beginning of a token).
     start_idx: usize,
 }
 
 impl Cursor {
+    /// Advance the cursor by one position.
     fn increment(&mut self) {
         self.idx += 1;
     }
 
+    /// Get the current index.
     fn get(&self) -> usize {
         self.idx
     }
 
+    /// Get the last recorded start index.
     fn get_start(&self) -> usize {
         self.start_idx
     }
 
+    /// Update the start index to match the current index.
     fn set_start_to_idx(&mut self) {
         self.start_idx = self.idx;
     }
 }
 
+/// Marker type representing a URI path parameter segment (e.g., `{id}`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct PathSegment;
 
+/// Marker type representing a URI query parameter (e.g., `?id=123`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct QuerySegment;
 
+/// Holds both path and query parameters extracted from a URI.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Params<'a> {
     path_segment: Segment<'a, PathSegment>,
@@ -208,6 +267,7 @@ impl Default for Params<'_> {
 }
 
 impl<'a> Params<'a> {
+    /// Create a new, empty `Params` container.
     pub fn new() -> Self {
         Self {
             path_segment: Segment::<PathSegment>::new(),
@@ -215,32 +275,43 @@ impl<'a> Params<'a> {
         }
     }
 
+    /// Reset and return a mutable iterator over path parameters.
     pub fn iter_path(&mut self) -> &mut Segment<'a, PathSegment> {
         self.path_segment.iter()
     }
 
+    /// Reset and return a mutable iterator over query parameters.
     pub fn iter_query(&mut self) -> &mut Segment<'a, QuerySegment> {
         self.query_fragment.iter()
     }
 
+    /// Return a reference to the path parameter segment (without resetting iteration).
     pub fn path_segment(&self) -> &Segment<'_, PathSegment> {
         &self.path_segment
     }
 
+    /// Return a reference to the query parameter segment (without resetting iteration).
     pub fn query_segment(&self) -> &Segment<'_, QuerySegment> {
         &self.query_fragment
     }
 }
 
+/// Generic container for key-value string pairs (e.g., `("id", "123")`),
+/// parameterized over segment type (path or query).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Segment<'a, T>
 where
     T: Copy + Debug + PartialEq + Eq + Clone,
 {
+    /// Key entries, e.g., `id`, `user`, etc.
     key: [Option<&'a str>; 1024],
+    /// Corresponding values, may be `None` for query segments with no value.
     value: [Option<&'a str>; 1024],
+    /// Number of stored key-value pairs.
     num: usize,
+    /// Index for iteration state.
     iter_cnt: usize,
+    /// Phantom data to differentiate between PathSegment and QuerySegment.
     marker: PhantomData<T>,
 }
 
@@ -248,6 +319,7 @@ impl<'a, T> Segment<'a, T>
 where
     T: Copy + Debug + PartialEq + Eq + Clone,
 {
+    /// Create a new empty segment container.
     pub fn new() -> Self {
         Self {
             key: [None; 1024],
@@ -258,32 +330,37 @@ where
         }
     }
 
+    /// Insert both key and optional value.
     pub fn insert_key_value(&mut self, key: &'a str, value: Option<&'a str>) {
         self.key[self.num] = Some(key);
         self.value[self.num] = value;
         self.num += 1;
     }
 
+    /// Insert just the key (used when parsing path params before resolving value).
     pub fn insert_key(&mut self, key: &'a str) {
         self.key[self.num] = Some(key);
     }
 
+    /// Insert a value (used after the key has already been inserted).
     pub fn insert_value(&mut self, value: Option<&'a str>) {
         self.value[self.num] = value;
         self.num += 1;
     }
 
-    /// Returns number of inserted key value pairs
+    /// Return the number of key-value pairs.
     pub fn size(&self) -> usize {
         self.num
     }
 
+    /// Reset internal iteration counter.
     pub fn iter(&mut self) -> &mut Self {
         self.iter_cnt = 0;
         self
     }
 }
 
+/// Iterator implementation for path segments where all values are guaranteed to exist.
 impl<'a> Iterator for Segment<'a, PathSegment> {
     type Item = (Key<'a>, Value<'a>);
 
@@ -300,6 +377,7 @@ impl<'a> Iterator for Segment<'a, PathSegment> {
     }
 }
 
+/// Iterator implementation for query segments where values may be optional.
 impl<'a> Iterator for Segment<'a, QuerySegment> {
     type Item = (Key<'a>, Option<Value<'a>>);
 
@@ -316,6 +394,7 @@ impl<'a> Iterator for Segment<'a, QuerySegment> {
     }
 }
 
+/// Lightweight wrapper for a borrowed string key (e.g., URI parameter name).
 #[derive(Debug, PartialEq)]
 pub struct Key<'a>(&'a str);
 
@@ -325,6 +404,7 @@ impl AsRef<str> for Key<'_> {
     }
 }
 
+/// Lightweight wrapper for a borrowed string value (e.g., URI or query value).
 #[derive(Debug, PartialEq)]
 pub struct Value<'a>(&'a str);
 
@@ -334,6 +414,7 @@ impl AsRef<str> for Value<'_> {
     }
 }
 
+/// Struct representing a parsed URI, which may include path and query segments.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Uri<'a>(&'a str);
 
@@ -344,15 +425,18 @@ impl AsRef<str> for Uri<'_> {
 }
 
 impl<'a> Uri<'a> {
+    /// Match the current URI against a parameterized pattern, extracting both path and query parameters.
     pub fn is_match(&self, cmp_uri: &'a str) -> Option<Params<'a>> {
         let mut path_segment = Segment::<PathSegment>::new();
 
+        // Flags and indices for tracking parsing state
         let mut start_idx = 0;
         let mut bracket_hit = false;
         let mut bracket_hit_idx = 0;
         let mut record_uri_char = false;
         let mut end_with_value = false;
 
+        // Cursors to track positions in the original URI and the comparison pattern
         let mut cursor_uri = Cursor {
             idx: 0,
             start_idx: 0,
@@ -361,51 +445,41 @@ impl<'a> Uri<'a> {
             idx: 0,
             start_idx: 0,
         };
+
+        // Walk through the characters in the comparison URI (e.g., "/orders/{id}")
         for (idx, c) in cmp_uri.char_indices() {
             if record_uri_char {
-                println!("[DEBUG] RECORD CHAR {}", c);
+                // We are recording the value for a previously matched parameter
                 end_with_value = false;
                 cursor_cmp_uri.set_start_to_idx();
+
                 let start_idx_uri = cursor_uri.get();
                 let mut c_iter = self.0.chars().skip(cursor_uri.get());
                 let Some(mut c_uri) = c_iter.next() else {
                     break;
                 };
-                println!("[DEBUG] RECORD CHAR URI {}", c_uri);
+
                 while c_uri != c {
                     let Some(c_uri_next) = c_iter.next() else {
                         break;
                     };
                     c_uri = c_uri_next;
                     cursor_uri.increment();
-                    println!("[DEBUG] RECORD CHAR WITHIN {}", c_uri);
                 }
+
                 let end_idx_uri = cursor_uri.get();
-                println!("[DEBUG] END URI: {:?}", &self.0[start_idx_uri..end_idx_uri]);
                 path_segment.insert_value(Some(&self.0[start_idx_uri..end_idx_uri]));
-                println!("[DEBUG] FALSE FALSE RECORD CHAR WITHIN {}, {}", c_uri, c);
                 cursor_uri.set_start_to_idx();
                 record_uri_char = false;
             }
 
             if c == '{' {
-                println!("[DEBUG] BRACKET HIT START");
-                println!(
-                    "[DEBUG] CMP URI {:?}",
-                    &cmp_uri[cursor_cmp_uri.get_start()..cursor_cmp_uri.get()]
-                );
-                println!(
-                    "[DEBUG] SELF 0 URI {:?}",
-                    &self.0[cursor_uri.get_start()..cursor_uri.get()]
-                );
-
+                // We've encountered the start of a parameter segment
                 if cmp_uri[cursor_cmp_uri.get_start()..cursor_cmp_uri.get()]
                     != self.0[cursor_uri.get_start()..cursor_uri.get()]
                 {
                     return None;
                 } else {
-                    // We need to reset the start index
-                    println!("[DEBUG] BRACKET HIT");
                     bracket_hit = true;
                     bracket_hit_idx = idx;
                 }
@@ -413,15 +487,11 @@ impl<'a> Uri<'a> {
 
             if bracket_hit {
                 if c == '}' {
-                    println!("[DEBUG] BRACKET HIT END");
+                    // Parameter name ends
                     bracket_hit = false;
                     start_idx = idx + 1;
                     record_uri_char = true;
                     end_with_value = true;
-                    println!(
-                        "[DEBUG] KEY TO ADD {:?}",
-                        &cmp_uri[bracket_hit_idx + 1..idx]
-                    );
                     path_segment.insert_key(&cmp_uri[bracket_hit_idx + 1..idx]);
                     cursor_cmp_uri.set_start_to_idx();
                 }
@@ -429,13 +499,16 @@ impl<'a> Uri<'a> {
                 continue;
             }
 
+            // Advance both cursors normally if we're not within a bracketed param
             cursor_uri.increment();
             if !bracket_hit {
                 cursor_cmp_uri.increment();
             }
         }
+
         let mut params: Option<Params> = None;
 
+        // Handle query string (if any)
         if self.0.contains('?') {
             if let Some(query_fragment) = self.0.split('?').last() {
                 let query_segment = Uri::parse_segment(query_fragment);
@@ -443,11 +516,8 @@ impl<'a> Uri<'a> {
             }
         }
 
-        println!("[DEBUG] END WITH VALUE: {}", end_with_value);
+        // If URI ended while parsing a parameter, store the final value
         if end_with_value {
-            // We need to extract the parameter value
-            println!("[DEBUG] END WITH VALUE: {}", end_with_value);
-
             let mut end_idx = self.0.len();
             for (idx, char) in self.0.char_indices() {
                 if char == '?' {
@@ -455,53 +525,38 @@ impl<'a> Uri<'a> {
                     break;
                 }
             }
-
-            println!(
-                "[DEBUG] END WITH VALUE QUERY: {:?}",
-                Some(&self.0[cursor_uri.get()..end_idx])
-            );
             path_segment.insert_value(Some(&self.0[cursor_uri.get()..end_idx]));
         }
 
-        if self.0.contains('?') {
-            if let Some(query_fragment) = self.0.split('?').last() {
-                let query_segment = Uri::parse_segment(query_fragment);
-                params.get_or_insert_default().query_fragment = query_segment;
-            }
-        }
-
+        // Store the path segment into params if any values were parsed
         if path_segment.num > 0 {
-            println!("[DEBUG] WITHIN 2233");
             params.get_or_insert_default().path_segment = path_segment;
         }
 
+        // Final segment check — we matched everything except trailing static segments
         if start_idx >= cmp_uri.len() {
-            // Need to check if we end with a value parameter
-            println!("[DEBUG] WITHIN");
             return params;
         }
 
-        // Compare the last part
+        // Ensure the remainder of both URIs match exactly
         if self.0[cursor_uri.get_start()..] != cmp_uri[cursor_cmp_uri.get_start()..] {
-            println!("WITHIN WITHIN WITHIN");
             return params;
         }
 
-        println!("[DEBUG] BEFORE THE END, but we know it's a match here so we can set it to a default value");
+        // All done; return extracted parameters
         if params.is_none() {
             params = Some(Params::default());
         }
         params
     }
 
+    /// Parse the query portion of a URI (e.g., `?a=1&b`) into a Segment structure.
     fn parse_segment(segment_part: &'a str) -> Segment<'a, QuerySegment> {
         let mut segment: Segment<'a, QuerySegment> = Segment::new();
 
         segment_part.split('&').for_each(|inner_split| {
             let mut iter = inner_split.splitn(2, '=');
-            let Some(key) = iter.next() else {
-                return;
-            };
+            let Some(key) = iter.next() else { return };
             let value = iter.next();
             segment.insert_key_value(key, value);
         });
@@ -510,6 +565,7 @@ impl<'a> Uri<'a> {
     }
 }
 
+/// Supported HTTP methods.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum HttpMethod {
     GET,
@@ -522,6 +578,7 @@ pub enum HttpMethod {
 }
 
 impl From<&[u8]> for HttpMethod {
+    /// Convert raw bytes (e.g., b"GET") to an `HttpMethod` enum variant.
     fn from(value: &[u8]) -> Self {
         match value {
             b"GET" => HttpMethod::GET,
@@ -531,16 +588,17 @@ impl From<&[u8]> for HttpMethod {
             b"PUT" => HttpMethod::PUT,
             b"PATCH" => HttpMethod::PATCH,
             b"DELETE" => HttpMethod::DELETE,
-            _ => panic!(""),
+            _ => panic!("Unknown HTTP method"),
         }
     }
 }
 
+/// Fixed-capacity container for HTTP headers.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Headers<'a> {
     keys: [Option<&'a str>; MAX_NUM_HEADERS],
     values: [Option<&'a str>; MAX_NUM_HEADERS],
-    /// Number of headers
+    /// Number of stored headers.
     num: usize,
 }
 
@@ -551,6 +609,7 @@ impl Default for Headers<'_> {
 }
 
 impl<'a> Headers<'a> {
+    /// Create an empty `Headers` collection.
     pub fn new() -> Self {
         Self {
             keys: [None; MAX_NUM_HEADERS],
@@ -559,6 +618,7 @@ impl<'a> Headers<'a> {
         }
     }
 
+    /// Add a header key-value pair to the collection.
     fn add_key_value(&mut self, key: &'a str, value: &'a str) {
         self.keys[self.num] = Some(key);
         self.values[self.num] = Some(value);

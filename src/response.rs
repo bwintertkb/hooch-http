@@ -1,8 +1,15 @@
+//! HTTP Response Building and Serialization Module
+//!
+//! This module provides a minimal `HttpResponseBuilder` utility for constructing HTTP
+//! responses, along with associated types like `HttpStatus`, `HeaderKey`, and `HeaderValue`.
+//! Responses can be serialized into byte buffers for sending over a network.
+
 use std::collections::HashMap;
 use std::io::Write;
 
 use crate::shared::HttpVersion;
 
+/// Common HTTP status codes.
 #[derive(Debug, Copy, Clone)]
 pub enum HttpStatus {
     Ok,
@@ -17,6 +24,7 @@ pub enum HttpStatus {
     ServiceUnavailable,
 }
 
+/// Convert an `HttpStatus` to its numeric status code.
 impl From<HttpStatus> for u16 {
     fn from(status: HttpStatus) -> u16 {
         match status {
@@ -34,6 +42,7 @@ impl From<HttpStatus> for u16 {
     }
 }
 
+/// Convert an `HttpStatus` to its standard reason phrase.
 impl From<HttpStatus> for &'static str {
     fn from(status: HttpStatus) -> &'static str {
         match status {
@@ -51,6 +60,7 @@ impl From<HttpStatus> for &'static str {
     }
 }
 
+/// Wrapper for HTTP header keys.
 #[derive(Debug)]
 pub struct HeaderKey(String);
 
@@ -72,6 +82,7 @@ impl From<String> for HeaderKey {
     }
 }
 
+/// Wrapper for HTTP header values.
 #[derive(Debug)]
 pub struct HeaderValue(String);
 
@@ -93,6 +104,7 @@ impl From<String> for HeaderValue {
     }
 }
 
+/// Builder struct for constructing an HTTP response.
 #[derive(Debug)]
 pub struct HttpResponseBuilder {
     status: HttpStatus,
@@ -102,6 +114,7 @@ pub struct HttpResponseBuilder {
 }
 
 impl HttpResponseBuilder {
+    /// Create a builder with a custom status.
     pub fn new(status: HttpStatus) -> Self {
         Self {
             status,
@@ -111,115 +124,80 @@ impl HttpResponseBuilder {
         }
     }
 
+    /// Shortcut for 200 OK.
     pub fn ok() -> Self {
-        Self {
-            status: HttpStatus::Ok,
-            protocal: None,
-            headers: None,
-            body: None,
-        }
+        Self::new(HttpStatus::Ok)
     }
 
+    /// Shortcut for 201 Created.
     pub fn created() -> Self {
-        Self {
-            status: HttpStatus::Created,
-            protocal: None,
-            headers: None,
-            body: None,
-        }
+        Self::new(HttpStatus::Created)
     }
 
+    /// Shortcut for 204 No Content.
     pub fn no_content() -> Self {
-        Self {
-            status: HttpStatus::NoContent,
-            protocal: None,
-            headers: None,
-            body: None,
-        }
+        Self::new(HttpStatus::NoContent)
     }
 
+    /// Shortcut for 400 Bad Request.
     pub fn bad_request() -> Self {
-        Self {
-            status: HttpStatus::BadRequest,
-            protocal: None,
-            headers: None,
-            body: None,
-        }
+        Self::new(HttpStatus::BadRequest)
     }
 
+    /// Shortcut for 401 Unauthorized.
     pub fn unauthorized() -> Self {
-        Self {
-            status: HttpStatus::Unauthorized,
-            protocal: None,
-            headers: None,
-            body: None,
-        }
+        Self::new(HttpStatus::Unauthorized)
     }
 
+    /// Shortcut for 403 Forbidden.
     pub fn forbidden() -> Self {
-        Self {
-            status: HttpStatus::Forbidden,
-            protocal: None,
-            headers: None,
-            body: None,
-        }
+        Self::new(HttpStatus::Forbidden)
     }
 
+    /// Shortcut for 404 Not Found.
     pub fn not_found() -> Self {
-        Self {
-            status: HttpStatus::NotFound,
-            protocal: None,
-            headers: None,
-            body: None,
-        }
+        Self::new(HttpStatus::NotFound)
     }
 
+    /// Shortcut for 500 Internal Server Error.
     pub fn internal_server_error() -> Self {
-        Self {
-            status: HttpStatus::InternalServerError,
-            protocal: None,
-            headers: None,
-            body: None,
-        }
+        Self::new(HttpStatus::InternalServerError)
     }
 
+    /// Shortcut for 502 Bad Gateway.
     pub fn bad_gateway() -> Self {
-        Self {
-            status: HttpStatus::BadGateway,
-            protocal: None,
-            headers: None,
-            body: None,
-        }
+        Self::new(HttpStatus::BadGateway)
     }
 
+    /// Shortcut for 503 Service Unavailable.
     pub fn service_unavailable() -> Self {
-        Self {
-            status: HttpStatus::ServiceUnavailable,
-            protocal: None,
-            headers: None,
-            body: None,
-        }
+        Self::new(HttpStatus::ServiceUnavailable)
     }
 
+    /// Set the HTTP protocol version (defaults to 1.1).
     pub fn protocal(mut self, protocal: HttpVersion) -> Self {
         self.protocal = Some(protocal);
         self
     }
 
+    /// Set the response headers.
     pub fn headers(mut self, headers: HashMap<HeaderKey, HeaderValue>) -> Self {
         self.headers = Some(headers);
         self
     }
 
+    /// Get a mutable reference to the headers (if present).
     pub fn get_mut_headers(&mut self) -> Option<&mut HashMap<HeaderKey, HeaderValue>> {
         self.headers.as_mut()
     }
 
+    /// Set the response body.
     pub fn body(mut self, body: String) -> Self {
         self.body = Some(body);
         self
     }
 
+    /// Finalize the builder and return a constructed `HttpResponse`.
     pub fn build(self) -> HttpResponse {
         HttpResponse {
             status: self.status,
@@ -230,6 +208,7 @@ impl HttpResponseBuilder {
     }
 }
 
+/// Represents a fully built HTTP response.
 #[derive(Debug)]
 pub struct HttpResponse {
     status: HttpStatus,
@@ -239,24 +218,28 @@ pub struct HttpResponse {
 }
 
 impl HttpResponse {
+    /// Serialize the HTTP response to a byte buffer, suitable for sending over the network.
     pub fn serialize(self, mut buffer: Vec<u8>) -> Vec<u8> {
+        // Write status line
         write!(
             &mut buffer,
-            "{} {} {}\r\n",
+            "{} {}\r\n",
             <&str>::from(self.protocal),
-            u16::from(self.status),
-            <&str>::from(self.status)
+            format!("{} {}", u16::from(self.status), <&str>::from(self.status))
         )
         .unwrap();
 
+        // Write headers
         if let Some(headers) = self.headers {
             headers.iter().for_each(|(key, value)| {
                 write!(&mut buffer, "{}: {}\r\n", key.as_ref(), value.as_ref()).unwrap();
             });
         }
 
+        // End of headers
         write!(&mut buffer, "\r\n").unwrap();
 
+        // Write body if present
         if let Some(body) = self.body {
             write!(&mut buffer, "{}", body).unwrap();
         }

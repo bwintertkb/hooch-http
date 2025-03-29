@@ -1,10 +1,14 @@
 [package]
 name = "hooch-http"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "HTTP addition to the hooch runtime"
-license = "Apache-2.0" # or another SPDX license identifier
 authors = ["Bartek"]
+license = "Apache-2.0"
+repository = "https://github.com/bwintertkb/hooch-http"
+readme = "README.md"
+keywords = ["async", "http", "io", "non-blocking"]
+categories = ["asynchronous", "http"]
 
 [dependencies]
 hooch = "0.1.5"
