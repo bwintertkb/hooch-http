@@ -421,6 +421,21 @@ impl AsRef<str> for Uri<'_> {
 impl<'a> Uri<'a> {
     /// Match the current URI against a parameterized pattern, extracting both path and query parameters.
     pub fn is_match(&self, cmp_uri: &'a str) -> Option<Params<'a>> {
+        // TODO, find a better way, this is to handle the case both paths are home, i.e. cmp_uri =
+        // '/' && self.0 = '/'
+        // These are some sanity check
+        // ------------------------------
+        if self.0 == cmp_uri {
+            return Some(Params {
+                path_segment: Segment::<PathSegment>::new(),
+                query_fragment: Segment::<QuerySegment>::new(),
+            });
+        }
+        if self.0.split('/').count() != cmp_uri.split('/').count() {
+            return None;
+        }
+        // ------------------------------
+
         let mut path_segment = Segment::<PathSegment>::new();
 
         // Flags and indices for tracking parsing state
@@ -793,6 +808,37 @@ mod tests {
     }
 
     #[test]
+    fn uri_is_match_home_path() {
+        let uri = Uri("/");
+
+        let expected_params = Params {
+            path_segment: Segment::<PathSegment>::new(),
+            query_fragment: Segment::<QuerySegment>::new(),
+        };
+
+        assert_eq!(uri.is_match("/"), Some(expected_params))
+    }
+
+    #[test]
+    fn uri_is_match_home_path_no_parameters() {
+        let uri = Uri("/");
+
+        let actual = uri.is_match("/{something}");
+
+        let mut path_segment = Segment::<PathSegment>::new();
+        path_segment.key[0] = Some("something");
+        path_segment.value[0] = Some("");
+        path_segment.num = 1;
+
+        let expected_params = Params {
+            path_segment,
+            query_fragment: Segment::<QuerySegment>::new(),
+        };
+
+        assert_eq!(actual, Some(expected_params))
+    }
+
+    #[test]
     fn uri_is_match_no_parameterized() {
         let uri = Uri("/uri");
 
@@ -805,7 +851,7 @@ mod tests {
     }
 
     #[test]
-    fn ui_is_match_parameterized_single_arg() {
+    fn uri_is_match_parameterized_single_arg() {
         let uri = Uri("/1244r2");
 
         let mut path_segment = Segment::<PathSegment>::new();
@@ -818,6 +864,12 @@ mod tests {
             query_fragment: Segment::<QuerySegment>::new(),
         };
         assert_eq!(uri.is_match("/{id}"), Some(expected_params))
+    }
+
+    #[test]
+    fn uri_is_match_parameterized_invalid_comparison() {
+        let uri = Uri("/");
+        assert!(uri.is_match("/what/{mate}").is_none())
     }
 
     #[test]

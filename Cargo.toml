@@ -1,6 +1,6 @@
 [package]
 name = "hooch-http"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "HTTP addition to the hooch runtime"
 authors = ["Bartek"]
@@ -11,4 +11,4 @@ keywords = ["async", "http", "io", "non-blocking"]
 categories = ["asynchronous"]
 
 [dependencies]
-hooch = "0.1.5"
+hooch = "0.1.6"

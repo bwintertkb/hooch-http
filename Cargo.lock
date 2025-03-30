@@ -54,9 +54,9 @@ checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 
 [[package]]
 name = "hooch"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3807c024bf27231ab8d50dbedc4f60ccf3410fa3c0db596485a10dd295a6c1d"
+checksum = "32e3776cecfdcb2f2ea93334c5d723491188d5abbd0d4b0fa4da651ca833251e"
 dependencies = [
  "dashmap",
  "hooch-macro",
@@ -66,16 +66,16 @@ dependencies = [
 
 [[package]]
 name = "hooch-http"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "hooch",
 ]
 
 [[package]]
 name = "hooch-macro"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ab1e8c5cb11d15a3b0d464e711a9a797820e6f1c3a7ee64fa781d249130cb23"
+checksum = "681761063b790e6758b400c503beb9f6ab53055a5d0153465829c1948a8aa52e"
 dependencies = [
  "quote",
  "syn",

@@ -91,7 +91,6 @@ impl HoochApp {
     {
         let mut buffer = [0; 1024 * 100];
         let bytes_read = stream.read(&mut buffer).await.unwrap();
-        println!("BYTES READ: {}", bytes_read);
 
         let handler_clone = Arc::clone(&handler);
         let http_request = HttpRequest::from_bytes(&buffer[..bytes_read]);
