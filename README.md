@@ -73,16 +73,6 @@ QUERY KEY: Key("this")
 QUERY VALUE: Some(Value("that"))
 ```
 
-## 📦 Installation
-
-Add to your `Cargo.toml`:
-
-```toml
-[dependencies]
-hooch = "0.1"
-hooch_http = { path = "./hooch_http" } # or use a Git repo if publishing externally
-```
-
 ## 📚 Documentation
 
 - Requests are parsed using efficient zero-copy logic.
