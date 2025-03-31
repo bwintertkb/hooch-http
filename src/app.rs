@@ -27,13 +27,28 @@ use hooch::{
 
 use crate::{request::HttpRequest, response::HttpResponse};
 
-/// Builder for configuring and creating a [`HoochApp`] instance.
 #[derive(Debug)]
-pub struct HoochAppBuilder {
-    addr: SocketAddr,
+pub enum Middleware {
+    Continue(HttpRequest<'static>),
+    CircuitBreak(HttpResponse),
 }
 
-impl HoochAppBuilder {
+/// Builder for configuring and creating a [`HoochApp`] instance.
+#[derive(Debug)]
+pub struct HoochAppBuilder<Fut, F>
+where
+    Fut: Future<Output = Middleware>,
+    F: Fn(HttpRequest<'static>, SocketAddr) -> Fut + Send + Sync + 'static,
+{
+    addr: SocketAddr,
+    middleware: Vec<F>,
+}
+
+impl<Fut, F> HoochAppBuilder<Fut, F>
+where
+    Fut: Future<Output = Middleware>,
+    F: Fn(HttpRequest<'static>, SocketAddr) -> Fut + Send + Sync + 'static,
+{
     /// Creates a new `HoochAppBuilder` from an address that implements [`ToSocketAddrs`].
     ///
     /// # Errors
@@ -45,7 +60,15 @@ impl HoochAppBuilder {
             .next()
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no address resolved"))?;
 
-        Ok(Self { addr })
+        Ok(Self {
+            addr,
+            middleware: Vec::new(),
+        })
+    }
+
+    pub fn add_middleware(mut self, middleware: F) -> Self {
+        self.middleware.push(middleware);
+        self
     }
 
     /// Consumes the builder and returns a [`HoochApp`] instance.
@@ -58,6 +81,7 @@ impl HoochAppBuilder {
 #[derive(Debug)]
 pub struct HoochApp {
     addr: SocketAddr,
+    middleware: Arc<Vec<MIDDLEWARE GENERIC>>
 }
 
 impl HoochApp {
