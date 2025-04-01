@@ -1,9 +1,19 @@
 use hooch::hooch_main;
-use hooch_http::{HoochAppBuilder, HttpRequest, HttpResponse, HttpResponseBuilder};
+use hooch_http::{HoochAppBuilder, HttpRequest, HttpResponse, HttpResponseBuilder, Middleware};
 
 #[hooch_main]
 async fn main() {
-    let app = HoochAppBuilder::new("localhost:8080").unwrap().build();
+    let app = HoochAppBuilder::new("localhost:8080")
+        .unwrap()
+        .add_middleware(async |req, addr| {
+            println!("Middleware 1, {}", addr);
+            Middleware::Continue(req)
+        })
+        .add_middleware(async |req, addr| {
+            println!("Middleware 2, {}", addr);
+            Middleware::Continue(req)
+        })
+        .build();
 
     app.serve(handler).await;
 }
