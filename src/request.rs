@@ -43,7 +43,7 @@ use std::{
     marker::PhantomData,
 };
 
-use crate::shared::HttpVersion;
+use crate::{shared::HttpVersion, HttpMethod};
 
 const CARRIAGE_RETURN_LINE_FEED: &[u8; 2] = b"\r\n";
 const CARRIAGE_RETURN_LINE_FEED_TWICE: &[u8; 4] = b"\r\n\r\n";
@@ -107,6 +107,11 @@ impl<'a> HttpRequest<'a> {
     /// Get a reference to the URI.
     pub fn uri(&self) -> &Uri {
         &self.uri
+    }
+
+    /// Get the method
+    pub fn method(&self) -> HttpMethod {
+        self.method
     }
 
     /// Extract the request line from the HTTP request.
@@ -571,34 +576,6 @@ impl<'a> Uri<'a> {
         });
 
         segment
-    }
-}
-
-/// Supported HTTP methods.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum HttpMethod {
-    GET,
-    HEAD,
-    OPTIONS,
-    POST,
-    PUT,
-    PATCH,
-    DELETE,
-}
-
-impl From<&[u8]> for HttpMethod {
-    /// Convert raw bytes (e.g., b"GET") to an `HttpMethod` enum variant.
-    fn from(value: &[u8]) -> Self {
-        match value {
-            b"GET" => HttpMethod::GET,
-            b"HEAD" => HttpMethod::HEAD,
-            b"OPTIONS" => HttpMethod::OPTIONS,
-            b"POST" => HttpMethod::POST,
-            b"PUT" => HttpMethod::PUT,
-            b"PATCH" => HttpMethod::PATCH,
-            b"DELETE" => HttpMethod::DELETE,
-            _ => panic!("Unknown HTTP method"),
-        }
     }
 }
 
